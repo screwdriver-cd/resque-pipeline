@@ -1,0 +1,44 @@
+---
+workflow:
+    - beta
+
+shared:
+    image: node:6
+
+jobs:
+    main:
+        steps:
+            - check_build_requirements: |
+                which curl
+                which grep
+    beta:
+        steps:
+            - check_parameters: |
+                if [ -z "$K8S_TOKEN" ] || [ -z "$K8S_TAG" ] || [ -z "$K8S_DEPLOYMENT" ] || [ -z "$K8S_CONTAINER" ] || [ -z "$K8S_IMAGE" ] || [ -z "$K8S_HOST" ]; then
+                  echo Unable to kubernetes trigger, missing environment variables
+                  exit 2
+                fi
+            - deploy_k8s: |
+                echo 'Triggering Kubernetes deployment'
+                URL="https://${K8S_HOST}/apis/apps/v1beta1/namespaces/default/statefulsets/${K8S_DEPLOYMENT}"
+                BODY="{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"${K8S_CONTAINER}\",\"image\":\"${K8S_IMAGE}:${K8S_TAG}\"${ENVIRO_MOD}}]}}}}"
+                curl -k -i \
+                  -XPATCH \
+                  -H "Accept: application/json, */*" \
+                  -H "Authorization: Bearer ${K8S_TOKEN}" \
+                  -H "Content-Type: application/strategic-merge-patch+json" \
+                  -d $BODY \
+                  $URL > /tmp/k8s_out
+                grep "200 OK" /tmp/k8s_out || (echo "Failed deployment" && cat /tmp/k8s_out && exit 1)
+        environment:
+            K8S_TAG: "4.0"
+            K8S_CONTAINER: master
+            K8S_IMAGE: redis
+        secrets:
+            # Talking to Kubernetes
+            - K8S_TOKEN
+            # K8s host
+            - K8S_HOST
+            # Name of the statefulset
+            - K8S_DEPLOYMENT
+
